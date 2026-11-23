@@ -2,7 +2,7 @@
 
 **Generate database ER diagrams from your SQL files, inside VS Code.**
 
-Sister project of [CDK Stack Map](../cdk-stackmap): same sidebar + interactive webview, but the input is plain DDL instead of a CDK assembly.
+Sister project of [CDK Stack Map](https://github.com/marabunta-labs/cdk-stackmap): same sidebar + interactive webview, but the input is plain DDL instead of a CDK assembly.
 
 ## Features
 
