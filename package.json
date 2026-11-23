@@ -1,0 +1,117 @@
+{
+  "name": "sql-dbmap",
+  "displayName": "SQL DBMap",
+  "description": "Generate database ER diagrams from SQL files.",
+  "version": "0.1.0",
+  "publisher": "Marabunta",
+  "repository": "https://github.com/marabunta-labs/sql-dbmap",
+  "engines": {
+    "vscode": "^1.108.1"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "sql-dbmap.selectFolder",
+        "title": "Select Folder",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "sql-dbmap.visualize",
+        "title": "Visualize",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "sql-dbmap.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "sqlDbMapContainer",
+          "title": "SQL DBMap",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "sqlDbMapContainer": [
+        {
+          "id": "sqlDbMapView",
+          "name": "Explorer"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "sqlDbMapView",
+        "contents": "No folder has been selected.\nTo get started, select a folder containing .sql files.\n\n[Select SQL Folder](command:sql-dbmap.selectFolder)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "sql-dbmap.selectFolder",
+          "when": "view == sqlDbMapView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sql-dbmap.visualize",
+          "when": "view == sqlDbMapView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "sql-dbmap.refresh",
+          "when": "view == sqlDbMapView",
+          "group": "navigation@3"
+        }
+      ]
+    },
+    "configuration": {
+      "type": "object",
+      "title": "SQL DBMap",
+      "properties": {
+        "sql-dbmap.columnDisplay": {
+          "type": "string",
+          "enum": [
+            "all",
+            "keys"
+          ],
+          "default": "all",
+          "description": "Columns shown inside each table: all of them, or only primary/foreign keys.",
+          "enumDescriptions": [
+            "Show every column.",
+            "Show only primary and foreign key columns."
+          ]
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "tsc -p . --outDir out && node --test out/test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "22.x",
+    "@types/vscode": "^1.108.1",
+    "esbuild": "^0.27.2",
+    "eslint": "^9.39.2",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.52.0"
+  }
+}

@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} data: blob:; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}} 'unsafe-inline' 'unsafe-eval'; font-src {{cspSource}};">
+
+    <link rel="stylesheet" type="text/css" href="{{mediaUri}}/vendor/joint.css" />
+    <script src="{{mediaUri}}/vendor/jquery.min.js"></script>
+    <script src="{{mediaUri}}/vendor/lodash.min.js"></script>
+    <script src="{{mediaUri}}/vendor/backbone-min.js"></script>
+    <script src="{{mediaUri}}/vendor/joint.min.js"></script>
+
+    <title>SQL DBMap</title>
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #1e1e1e; font-family: 'Segoe UI', sans-serif; }
+
+        #paper { width: 100%; height: 100%; cursor: grab; background-color: #1e1e1e; }
+        #paper.panning { cursor: grabbing; }
+
+        #ui {
+            position: absolute; top: 20px; left: 20px;
+            background: rgba(30, 30, 30, 0.95);
+            border: 1px solid #454545; color: #cccccc;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            width: 260px; border-radius: 8px;
+            display: flex; flex-direction: column;
+            font-size: 13px; z-index: 100;
+            backdrop-filter: blur(10px);
+            padding-bottom: 10px;
+            max-height: calc(100vh - 60px); overflow-y: auto;
+        }
+
+        .ui-section-header {
+            background: #333; padding: 12px 15px; cursor: pointer;
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid #444; user-select: none; transition: background 0.2s;
+        }
+        .ui-section-header:hover { background: #3a3a3a; }
+        #counter-text { color: #4fc3f7; font-weight: bold; }
+        .arrow { font-size: 12px; transition: transform 0.3s ease; }
+        .ui-section-header.active .arrow { transform: rotate(180deg); }
+        .ui-section-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; background: #222; }
+        .ui-section-content.open { max-height: 260px; overflow-y: auto; }
+
+        #search { box-sizing: border-box; width: calc(100% - 20px); margin: 10px; padding: 7px 9px; background: #1e1e1e; color: #ddd; border: 1px solid #454545; border-radius: 4px; font-size: 13px; }
+        #search:focus { outline: none; border-color: #4fc3f7; }
+
+        .schema-row { display: flex; align-items: center; gap: 10px; padding: 7px 14px; cursor: pointer; }
+        .schema-row:hover { background: rgba(255, 255, 255, 0.05); }
+        .schema-row .dot { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+        .schema-row .name { flex: 1; word-break: break-all; }
+        .schema-row .count { color: #888; font-size: 11px; }
+        .option-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px; cursor: pointer; }
+        input[type="checkbox"] { accent-color: #007acc; cursor: pointer; }
+
+        .ui-btn {
+            display: block; margin: 10px auto 0 auto; width: 92%; padding: 8px; border: none; border-radius: 4px;
+            background: #4fc3f722; color: #4fc3f7; font-weight: 700; cursor: pointer; font-size: 13px; transition: all 0.2s;
+        }
+        .ui-btn:hover { background: #4fc3f7; color: #111; }
+
+        .download-item {
+            width: 100%; padding: 12px 15px; background: transparent; border: none; color: #bbb; text-align: left;
+            cursor: pointer; border-bottom: 1px solid #333; font-size: 13px; transition: color 0.2s, background 0.2s;
+        }
+        .download-item:last-child { border-bottom: none; }
+        .download-item:hover { background: #2a2a2a; color: #fff; }
+
+        #details {
+            position: absolute; top: 20px; right: 20px; width: 360px;
+            max-height: calc(100vh - 230px); display: none; flex-direction: column;
+            background: rgba(30, 30, 30, 0.97); border: 1px solid #454545; border-radius: 8px;
+            color: #cccccc; font-size: 12px; z-index: 100; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
+        #details-header { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; background: #333; border-radius: 8px 8px 0 0; border-bottom: 1px solid #454545; }
+        #details-heading { flex: 1; min-width: 0; }
+        #details-title { font-weight: 700; font-size: 14px; color: #fff; word-break: break-all; }
+        #details-sub { font-size: 11px; margin-top: 2px; word-break: break-all; }
+        #details-close { background: none; border: none; color: #aaa; font-size: 16px; cursor: pointer; padding: 0 4px; }
+        #details-close:hover { color: #fff; }
+        #details-body { padding: 10px 14px 14px; overflow-y: auto; }
+        #details-body h4 { margin: 14px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: #888; }
+        #details-body h4:first-child { margin-top: 0; }
+        .col-row { display: flex; gap: 8px; padding: 2px 0; font-family: Consolas, Menlo, monospace; }
+        .col-row .badge { width: 30px; flex: none; color: #e5c07b; font-weight: bold; font-size: 10px; padding-top: 1px; }
+        .col-row .n { color: #9cdcfe; }
+        .col-row .t { color: #ce9178; margin-left: auto; text-align: right; word-break: break-all; }
+        .col-row .flags { color: #777; font-size: 10px; padding-top: 1px; }
+        .rel { display: block; padding: 4px 6px; border-radius: 4px; cursor: pointer; color: #ddd; }
+        .rel:hover { background: rgba(255,255,255,0.08); }
+        .rel .cols { color: #888; font-size: 11px; display: block; font-family: Consolas, Menlo, monospace; }
+        .empty { color: #777; font-style: italic; }
+        .col-row { cursor: pointer; border-radius: 4px; padding-left: 2px; padding-right: 2px; }
+        .col-row:hover { background: rgba(255,255,255,0.06); }
+        .col-row.sel { background: #4fc3f733; }
+        .ui-btn.toggle.on { background: #4fc3f7; color: #111; }
+        #minimap {
+            position: absolute; right: 20px; bottom: 20px; width: 220px; height: 140px; z-index: 100;
+            background: rgba(30, 30, 30, 0.95); border: 1px solid #454545; border-radius: 8px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5); cursor: crosshair;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <input id="search" type="text" placeholder="Search table..." autocomplete="off" spellcheck="false">
+
+        <div class="ui-section-header active" id="schemas-header">
+            <span>Schemas <span id="counter-text"></span></span>
+            <span class="arrow">▼</span>
+        </div>
+        <div class="ui-section-content open" id="schemas-content"><div id="schema-list" style="padding: 5px 0;"></div></div>
+
+        <div class="ui-section-header" id="options-header">
+            <span>Options</span>
+            <span class="arrow">▼</span>
+        </div>
+        <div class="ui-section-content" id="options-content">
+            <label class="option-row"><input type="checkbox" id="keys-only"> Show only key columns</label>
+            <label class="option-row"><input type="checkbox" id="show-external" checked> Show external tables</label>
+            <label class="option-row"><input type="checkbox" id="show-minimap" checked> Show minimap</label>
+        </div>
+
+        <div class="ui-section-header" id="download-header">
+            <span>Download</span>
+            <span class="arrow">▼</span>
+        </div>
+        <div class="ui-section-content" id="download-content">
+            <button id="download-svg-btn" class="download-item">Download SVG</button>
+            <button id="download-png-btn" class="download-item">Download PNG</button>
+            <button id="download-mermaid-btn" class="download-item">Export Mermaid (.mmd)</button>
+            <button id="download-json-btn" class="download-item">Export JSON</button>
+        </div>
+
+        <button id="center-view-btn" class="ui-btn">Center View</button>
+        <button id="reset-layout-btn" class="ui-btn" title="Arrange every visible table again">Reset Layout</button>
+        <button id="physics-btn" class="ui-btn toggle" title="Dragging a table pulls the ones linked to it and tables bump into each other">Physics: Off</button>
+    </div>
+
+    <div id="paper"></div>
+    <canvas id="minimap"></canvas>
+
+    <div id="details">
+        <div id="details-header">
+            <div id="details-heading"><div id="details-title"></div><div id="details-sub"></div></div>
+            <button id="details-close" title="Close (Esc)">✕</button>
+        </div>
+        <div id="details-body"></div>
+    </div>
+
+<script>
+    const vscode = acquireVsCodeApi();
+
+    function escapeHtml(text) {
+        return String(text == null ? '' : text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    const MODEL = {{erModel}};
+    const conf = Object.assign({ columnDisplay: 'all' }, {{userConfig}});
+
+    $(document).ready(function () {
+        const UI_FONT = "'Segoe UI', sans-serif";
+        const MONO_FONT = "Consolas, Menlo, 'Courier New', monospace";
+        const HEADER_H = 30, ROW_H = 20, PAD = 8, CHAR_W = 7.4, MAX_COLUMN_HEIGHT = 2400, GAP_X = 120, GAP_Y = 40;
+        const SCHEMA_COLORS = ['#4fc3f7', '#ffb74d', '#81c784', '#ba68c8', '#e57373', '#4db6ac', '#fff176', '#f06292', '#a1887f', '#90a4ae'];
+        const DEFAULT_SCHEMA = '(default)';
+
+        const schemaOf = t => t.schema || DEFAULT_SCHEMA;
+        const schemas = [...new Set(MODEL.tables.map(schemaOf))].sort();
+        const colorOfSchema = s => SCHEMA_COLORS[schemas.indexOf(s) % SCHEMA_COLORS.length];
+        const tableById = new Map(MODEL.tables.map(t => [t.id, t]));
+        const hiddenSchemas = new Set();
+        let keysOnly = conf.columnDisplay === 'keys';
+        let showExternal = true;
+        // null | { kind: 'table', id } | { kind: 'column', id, column } | { kind: 'relation', id }
+        let selection = null;
+        let query = '';
+
+        // ---- Table shape ----
+        joint.dia.Element.define('er.Table', {
+            attrs: {
+                body: { refWidth: '100%', refHeight: '100%', rx: 6, ry: 6, fill: '#252526', strokeWidth: 2 },
+                header: { refWidth: '100%', height: HEADER_H, rx: 6, ry: 6 },
+                headerCover: { refWidth: '100%', y: HEADER_H / 2, height: HEADER_H / 2 },
+                rowHighlight: { d: 'M 0 0', fill: '#4fc3f7', fillOpacity: 0.3, stroke: 'none', pointerEvents: 'none' },
+                title: { x: 10, y: HEADER_H / 2, textVerticalAnchor: 'middle', fontSize: 13, fontWeight: 'bold', fontFamily: UI_FONT, fill: '#111' },
+                badges: { x: 10, y: HEADER_H + PAD, textVerticalAnchor: 'top', fontSize: 10, fontWeight: 'bold', fontFamily: MONO_FONT, fill: '#e5c07b', lineHeight: ROW_H },
+                names: { x: 40, y: HEADER_H + PAD, textVerticalAnchor: 'top', fontSize: 12, fontFamily: MONO_FONT, fill: '#dddddd', lineHeight: ROW_H },
+                types: { y: HEADER_H + PAD, textVerticalAnchor: 'top', textAnchor: 'end', fontSize: 12, fontFamily: MONO_FONT, fill: '#8a8a8a', lineHeight: ROW_H }
+            }
+        }, {
+            markup: [
+                { tagName: 'rect', selector: 'body' },
+                { tagName: 'rect', selector: 'header' },
+                { tagName: 'rect', selector: 'headerCover' },
+                { tagName: 'path', selector: 'rowHighlight' },
+                { tagName: 'text', selector: 'title' },
+                { tagName: 'text', selector: 'badges' },
+                { tagName: 'text', selector: 'names' },
+                { tagName: 'text', selector: 'types' }
+            ]
+        });
+
+        const clip = (text, max) => text.length > max ? text.slice(0, max - 1) + '…' : text;
+        const visibleColumns = t => keysOnly ? t.columns.filter(c => c.primaryKey || c.foreignKey) : t.columns;
+
+        function applyTable(cell) {
+            const t = tableById.get(cell.get('tableId'));
+            const color = colorOfSchema(schemaOf(t));
+            const cols = visibleColumns(t);
+            const names = cols.map(c => clip(c.name, 32));
+            const types = cols.map(c => clip(c.type, 26));
+            const textW = Math.max(0, ...names.map((n, i) => n.length + types[i].length + 2)) * CHAR_W;
+            const width = Math.round(Math.min(480, Math.max(190, 56 + textW, t.name.length * 8.2 + 24)));
+            const height = HEADER_H + PAD * 2 + Math.max(1, cols.length) * ROW_H - (cols.length ? 0 : ROW_H - 4);
+            cell.resize(width, height);
+            cell.attr({
+                body: { stroke: color, strokeDasharray: t.external ? '6 4' : 'none' },
+                header: { fill: color, fillOpacity: t.external ? 0.55 : 1 },
+                headerCover: { fill: color, fillOpacity: t.external ? 0.55 : 1 },
+                title: { text: clip(t.name, Math.floor((width - 20) / 8)) },
+                badges: { text: cols.map(c => c.primaryKey && c.foreignKey ? 'PFK' : c.primaryKey ? 'PK' : c.foreignKey ? 'FK' : '').join('\n') },
+                names: { text: names.join('\n') },
+                types: { text: types.join('\n'), x: width - 10 }
+            });
+        }
+
+        // ---- Graph & paper ----
+        const namespace = joint.shapes;
+        const graph = new joint.dia.Graph({}, { cellNamespace: namespace });
+        const paper = new joint.dia.Paper({
+            el: document.getElementById('paper'),
+            model: graph,
+            width: '100%', height: '100%',
+            gridSize: 10, drawGrid: { color: '#2c2c2c', thickness: 1 },
+            background: { color: '#1e1e1e' },
+            cellViewNamespace: namespace,
+            defaultAnchor: { name: 'center' },
+            defaultConnectionPoint: { name: 'boundary' },
+            clickThreshold: 5, // a drag is not a click
+            interactive: cellView => !cellView.model.get('hidden') && cellView.model.isElement(),
+            sorting: joint.dia.Paper.sorting.APPROX
+        });
+
+        const elementOf = new Map();
+        MODEL.tables.forEach(t => {
+            const cell = new joint.shapes.er.Table({ tableId: t.id, position: { x: 0, y: 0 }, z: 2 });
+            applyTable(cell);
+            graph.addCell(cell);
+            elementOf.set(t.id, cell);
+        });
+
+        // Crow's foot on the foreign-key side, a bar on the referenced side (tip at the table border)
+        const MANY_MARKER = { type: 'path', d: 'M 14 0 L 0 -7 M 14 0 L 0 7 M 14 0 L 0 0', fill: 'none', stroke: '#9a9a9a', 'stroke-width': 1.5 };
+        const ONE_MARKER = { type: 'path', d: 'M 8 -7 L 8 7', fill: 'none', stroke: '#9a9a9a', 'stroke-width': 1.5 };
+        const OPTIONAL_ONE_MARKER = { type: 'path', d: 'M 8 -7 L 8 7 M 18 0 m -4 0 a 4 4 0 1 0 8 0 a 4 4 0 1 0 -8 0', fill: '#1e1e1e', stroke: '#9a9a9a', 'stroke-width': 1.5 };
+
+        const linkOf = new Map();
+        MODEL.relations.forEach(r => {
+            const link = new joint.shapes.standard.Link({
+                source: { id: elementOf.get(r.source).id },
+                target: { id: elementOf.get(r.target).id },
+                connector: { name: 'rounded', args: { radius: 10 } },
+                z: 1,
+                relationId: r.id,
+                attrs: {
+                    line: {
+                        stroke: '#7d7d7d', strokeWidth: 1.5,
+                        sourceMarker: r.oneToOne ? ONE_MARKER : MANY_MARKER,
+                        targetMarker: r.nullable && !r.oneToOne ? OPTIONAL_ONE_MARKER : ONE_MARKER
+                    }
+                }
+            });
+            graph.addCell(link);
+            linkOf.set(r.id, link);
+        });
+
+        // A link from a table to itself needs a detour or it has no length
+        function refreshSelfLinks() {
+            MODEL.relations.filter(r => r.source === r.target).forEach(r => {
+                const b = elementOf.get(r.source).getBBox();
+                linkOf.get(r.id).vertices([{ x: b.x + b.width + 45, y: b.y + b.height / 2 - 12 }, { x: b.x + b.width + 45, y: b.y + b.height / 2 + 12 }]);
+            });
+        }
+        graph.on('change:position change:size', cell => {
+            if (cell.isElement() && MODEL.relations.some(r => r.source === r.target && r.source === cell.get('tableId'))) { refreshSelfLinks(); }
+        });
+
+        // ---- Layout: referenced tables on the left, one column per dependency depth ----
+        function runLayout() {
+            const tables = MODEL.tables.filter(isTableVisible);
+            const ids = new Set(tables.map(t => t.id));
+            const rels = MODEL.relations.filter(r => r.source !== r.target && ids.has(r.source) && ids.has(r.target));
+            const parents = new Map(tables.map(t => [t.id, []]));
+            const connected = new Set();
+            rels.forEach(r => { parents.get(r.source).push(r.target); connected.add(r.source); connected.add(r.target); });
+
+            const depth = new Map();
+            const visiting = new Set();
+            const depthOf = id => {
+                if (depth.has(id)) { return depth.get(id); }
+                if (visiting.has(id)) { return 0; }
+                visiting.add(id);
+                let d = 0;
+                parents.get(id).forEach(p => { d = Math.max(d, depthOf(p) + 1); });
+                visiting.delete(id);
+                depth.set(id, d);
+                return d;
+            };
+
+            const layers = [];
+            tables.filter(t => connected.has(t.id)).forEach(t => { (layers[depthOf(t.id)] = layers[depthOf(t.id)] || []).push(t); });
+
+            const centerY = new Map();
+            const sizeOf = t => elementOf.get(t.id).size();
+            let x = 0, maxY = 0;
+            layers.forEach(layer => {
+                if (!layer) { return; }
+                const avgParentY = t => { const ys = parents.get(t.id).filter(p => centerY.has(p)).map(p => centerY.get(p)); return ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : 0; };
+                layer.sort((a, b) => (avgParentY(a) - avgParentY(b)) || schemaOf(a).localeCompare(schemaOf(b)) || a.name.localeCompare(b.name));
+                let y = 0, colWidth = 0;
+                layer.forEach(t => {
+                    const size = sizeOf(t);
+                    if (y > 0 && y + size.height > MAX_COLUMN_HEIGHT) { x += colWidth + GAP_X; y = 0; colWidth = 0; }
+                    elementOf.get(t.id).position(x, y);
+                    centerY.set(t.id, y + size.height / 2);
+                    y += size.height + GAP_Y;
+                    colWidth = Math.max(colWidth, size.width);
+                    maxY = Math.max(maxY, y);
+                });
+                x += colWidth + GAP_X;
+            });
+
+            // Tables without any relation go in a grid underneath
+            const loose = tables.filter(t => !connected.has(t.id)).sort((a, b) => schemaOf(a).localeCompare(schemaOf(b)) || a.name.localeCompare(b.name));
+            const rowWidth = Math.max(x, 2400);
+            let lx = 0, ly = maxY > 0 ? maxY + GAP_Y * 2 : 0, rowH = 0;
+            loose.forEach(t => {
+                const size = sizeOf(t);
+                if (lx > 0 && lx + size.width > rowWidth) { lx = 0; ly += rowH + GAP_Y; rowH = 0; }
+                elementOf.get(t.id).position(lx, ly);
+                lx += size.width + GAP_X / 2;
+                rowH = Math.max(rowH, size.height);
+            });
+            refreshSelfLinks();
+            kickPhysics();
+            scheduleMinimap();
+        }
+
+        // ---- Visibility, filtering and highlighting ----
+        const isTableVisible = t => !hiddenSchemas.has(schemaOf(t)) && (showExternal || !t.external);
+
+        const relationById = new Map(MODEL.relations.map(r => [r.id, r]));
+        const sameName = (list, name) => list.some(n => n.toLowerCase() === name.toLowerCase());
+
+        // What the current selection lights up: tables, relations and (per table) columns
+        function computeHighlight() {
+            if (!selection) { return null; }
+            const h = { tables: new Set(), rels: new Set(), cols: new Map() };
+            const addCols = (id, names) => {
+                const set = h.cols.get(id) || new Set();
+                names.forEach(n => set.add(n.toLowerCase()));
+                h.cols.set(id, set);
+            };
+            const addRelation = r => {
+                h.rels.add(r.id);
+                h.tables.add(r.source); h.tables.add(r.target);
+                addCols(r.source, r.sourceColumns); addCols(r.target, r.targetColumns);
+            };
+            if (selection.kind === 'relation') {
+                addRelation(relationById.get(selection.id));
+            } else if (selection.kind === 'column') {
+                h.tables.add(selection.id);
+                addCols(selection.id, [selection.column]);
+                MODEL.relations.forEach(r => {
+                    if ((r.source === selection.id && sameName(r.sourceColumns, selection.column)) ||
+                        (r.target === selection.id && sameName(r.targetColumns, selection.column))) { addRelation(r); }
+                });
+            } else {
+                h.tables.add(selection.id);
+                MODEL.relations.forEach(r => { if (r.source === selection.id || r.target === selection.id) { addRelation(r); h.cols.delete(r.source); h.cols.delete(r.target); } });
+            }
+            return h;
+        }
+
+        const rowsPath = (t, width, names) => visibleColumns(t)
+            .map((c, i) => names.has(c.name.toLowerCase()) ? `M 3 ${HEADER_H + PAD + i * ROW_H} h ${width - 6} v ${ROW_H} h ${-(width - 6)} z` : '')
+            .join(' ') || 'M 0 0';
+
+        function applyState() {
+            const h = computeHighlight();
+            const q = query.trim().toLowerCase();
+            const selectedTable = selection && selection.kind !== 'relation' ? selection.id : null;
+            MODEL.tables.forEach(t => {
+                const cell = elementOf.get(t.id);
+                const visible = isTableVisible(t);
+                cell.set('hidden', !visible);
+                const dimmed = (q && !t.name.toLowerCase().includes(q) && !t.id.toLowerCase().includes(q)) || (h && !h.tables.has(t.id));
+                cell.attr('root/display', visible ? null : 'none');
+                cell.attr('root/opacity', dimmed ? 0.22 : 1);
+                cell.attr('body/strokeWidth', t.id === selectedTable ? 4 : 2);
+                cell.attr('rowHighlight/d', h && h.cols.has(t.id) ? rowsPath(t, cell.size().width, h.cols.get(t.id)) : 'M 0 0');
+            });
+            MODEL.relations.forEach(r => {
+                const link = linkOf.get(r.id);
+                const visible = isTableVisible(tableById.get(r.source)) && isTableVisible(tableById.get(r.target));
+                link.set('hidden', !visible);
+                const active = !h || h.rels.has(r.id);
+                link.attr('root/display', visible ? null : 'none');
+                link.attr('root/opacity', active ? 1 : 0.12);
+                link.attr('line/stroke', h && active ? '#4fc3f7' : '#7d7d7d');
+                link.attr('line/strokeWidth', h && active ? 2.5 : 1.5);
+            });
+            updateCounter();
+            scheduleMinimap();
+        }
+
+        function updateCounter() {
+            $('#counter-text').text(`${schemas.length - hiddenSchemas.size}/${schemas.length}`);
+        }
+
+        // ---- Left panel ----
+        schemas.forEach(s => {
+            const count = MODEL.tables.filter(t => schemaOf(t) === s && !t.external).length;
+            const row = $(`<label class="schema-row"><input type="checkbox" checked><span class="dot" style="background:${colorOfSchema(s)}"></span><span class="name">${escapeHtml(s)}</span><span class="count">${count}</span></label>`);
+            row.find('input').on('change', function () {
+                if (this.checked) { hiddenSchemas.delete(s); } else { hiddenSchemas.add(s); }
+                if (selection && !selectionVisible()) { clearSelection(); }
+                applyState();
+            });
+            $('#schema-list').append(row);
+        });
+        updateCounter();
+
+        $('.ui-section-header').on('click', function () {
+            $(this).toggleClass('active');
+            $(this).next('.ui-section-content').toggleClass('open');
+        });
+        $('#options-header, #download-header').removeClass('active');
+
+        $('#search').on('input', function () { query = this.value; applyState(); });
+
+        $('#keys-only').prop('checked', keysOnly).on('change', function () { keysOnly = this.checked; resizeAll(); });
+        $('#show-external').on('change', function () { showExternal = this.checked; applyState(); runLayout(); });
+
+        function resizeAll() {
+            elementOf.forEach(cell => applyTable(cell));
+            runLayout();
+            if (selection) { showDetails(); }
+        }
+
+        window.addEventListener('message', event => {
+            const message = event.data;
+            if (message && message.type === 'updateConfig' && message.config && message.config.columnDisplay) {
+                keysOnly = message.config.columnDisplay === 'keys';
+                $('#keys-only').prop('checked', keysOnly);
+                resizeAll();
+            }
+        });
+
+        // ---- Zoom & pan ----
+        paper.el.addEventListener('wheel', function (e) {
+            if (e.ctrlKey) { return; }
+            e.preventDefault();
+            const rect = paper.el.getBoundingClientRect();
+            const x = e.clientX - rect.left, y = e.clientY - rect.top;
+            const oldScale = paper.scale().sx;
+            const newScale = Math.min(4, Math.max(0.02, oldScale * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
+            const tr = paper.translate();
+            const lx = (x - tr.tx) / oldScale, ly = (y - tr.ty) / oldScale;
+            paper.scale(newScale, newScale);
+            paper.translate(x - lx * newScale, y - ly * newScale);
+        }, { passive: false });
+
+        let panning = false, panStart = { x: 0, y: 0 };
+        paper.on('blank:pointerdown', e => { panning = true; panStart = { x: e.clientX, y: e.clientY }; $('#paper').addClass('panning'); });
+        $(document).on('mousemove', e => {
+            if (!panning) { return; }
+            const tr = paper.translate();
+            paper.translate(tr.tx + e.clientX - panStart.x, tr.ty + e.clientY - panStart.y);
+            panStart = { x: e.clientX, y: e.clientY };
+        });
+        $(document).on('mouseup', () => { panning = false; $('#paper').removeClass('panning'); });
+
+        const visibleElements = () => MODEL.tables.filter(isTableVisible).map(t => elementOf.get(t.id));
+
+        function fitView() {
+            const els = visibleElements();
+            if (!els.length) { return; }
+            const bbox = graph.getCellsBBox(els);
+            const rect = paper.el.getBoundingClientRect();
+            const pad = 60, left = $('#ui').outerWidth() + 40; // keep the tables clear of the left panel
+            const availW = rect.width - left - pad;
+            const s = Math.max(0.02, Math.min(1, availW / bbox.width, (rect.height - pad * 2) / bbox.height));
+            paper.scale(s, s);
+            paper.translate(left + availW / 2 - (bbox.x + bbox.width / 2) * s, rect.height / 2 - (bbox.y + bbox.height / 2) * s);
+        }
+
+        function centerOn(id) {
+            const b = elementOf.get(id).getBBox();
+            const rect = paper.el.getBoundingClientRect();
+            const s = Math.max(paper.scale().sx, 0.6);
+            paper.scale(s, s);
+            paper.translate(rect.width / 2 - (b.x + b.width / 2) * s, rect.height / 2 - (b.y + b.height / 2) * s);
+        }
+
+        $('#center-view-btn').on('click', fitView);
+        $('#reset-layout-btn').on('click', () => { runLayout(); fitView(); });
+        $('#show-minimap').on('change', function () { $('#minimap').toggle(this.checked); scheduleMinimap(); });
+
+        // ---- Selection + details panel ----
+        const badgeOf = c => c.primaryKey && c.foreignKey ? 'PFK' : c.primaryKey ? 'PK' : c.foreignKey ? 'FK' : '';
+
+        function relationRow(otherId, cols, label) {
+            const other = tableById.get(otherId);
+            return `<a class="rel" data-id="${escapeHtml(otherId)}">${escapeHtml(other.id)}<span class="cols">${escapeHtml(label)}${escapeHtml(cols)}</span></a>`;
+        }
+
+        function showTableDetails(id, selectedColumn) {
+            const t = tableById.get(id);
+            const outgoing = MODEL.relations.filter(r => r.source === id);
+            const incoming = MODEL.relations.filter(r => r.target === id && r.source !== id);
+            $('#details-title').text(t.name);
+            $('#details-sub').html(`<span style="color:${colorOfSchema(schemaOf(t))}">${escapeHtml(schemaOf(t))}</span>` +
+                (t.external ? ' · external (not created in these files)' : t.file ? ' · ' + escapeHtml(t.file) : ''));
+            $('#details-body').html(
+                `<h4>Columns (${t.columns.length})</h4>` +
+                (t.columns.length ? t.columns.map(c =>
+                    `<div class="col-row${selectedColumn && c.name === selectedColumn ? ' sel' : ''}" data-col="${escapeHtml(c.name)}"><span class="badge">${badgeOf(c)}</span><span class="n">${escapeHtml(c.name)}</span>` +
+                    `<span class="t">${escapeHtml(c.type)}</span><span class="flags">${c.nullable ? '' : 'NN'}${c.unique ? ' UQ' : ''}</span></div>`).join('') : '<div class="empty">None</div>') +
+                `<h4>References (${outgoing.length})</h4>` +
+                (outgoing.length ? outgoing.map(r => relationRow(r.target, r.targetColumns.join(', '), r.sourceColumns.join(', ') + ' → ')).join('') : '<div class="empty">None</div>') +
+                `<h4>Referenced by (${incoming.length})</h4>` +
+                (incoming.length ? incoming.map(r => relationRow(r.source, r.sourceColumns.join(', '), '← ' + r.targetColumns.join(', ') + ' · ')).join('') : '<div class="empty">None</div>')
+            );
+        }
+
+        function showRelationDetails(r) {
+            $('#details-title').text(r.name || 'Foreign key');
+            $('#details-sub').text(`${r.source} → ${r.target}`);
+            const pairs = r.sourceColumns.map((c, i) => `<div class="col-row"><span class="n">${escapeHtml(c)}</span><span class="t">→ ${escapeHtml(r.targetColumns[i] || '?')}</span></div>`).join('');
+            $('#details-body').html(
+                `<h4>Kind</h4><div>${r.oneToOne ? 'One-to-one' : 'Many-to-one'} · ${r.nullable ? 'optional' : 'required'}</div>` +
+                `<h4>Columns</h4>${pairs}` +
+                `<h4>Tables</h4>${relationRow(r.source, r.sourceColumns.join(', '), 'owns ')}${relationRow(r.target, r.targetColumns.join(', '), 'referenced · ')}`
+            );
+        }
+
+        function showDetails() {
+            if (selection.kind === 'relation') { showRelationDetails(relationById.get(selection.id)); }
+            else { showTableDetails(selection.id, selection.kind === 'column' ? selection.column : null); }
+            $('#details').css('display', 'flex');
+        }
+
+        function selectionVisible() {
+            const ids = selection.kind === 'relation' ? [relationById.get(selection.id).source, relationById.get(selection.id).target] : [selection.id];
+            return ids.every(id => isTableVisible(tableById.get(id)));
+        }
+
+        function select(sel) {
+            selection = sel;
+            if (sel) { showDetails(); } else { $('#details').hide(); }
+            applyState();
+        }
+        const selectTable = id => select({ kind: 'table', id });
+        const clearSelection = () => select(null);
+
+        // A click on a column row selects that column; anywhere else on the table selects the table
+        paper.on('element:pointerclick', (view, evt, x, y) => {
+            const id = view.model.get('tableId');
+            const cols = visibleColumns(tableById.get(id));
+            const idx = Math.floor((y - view.model.getBBox().y - HEADER_H - PAD) / ROW_H);
+            if (idx >= 0 && idx < cols.length && !(selection && selection.kind === 'column' && selection.id === id && selection.column === cols[idx].name)) {
+                select({ kind: 'column', id, column: cols[idx].name });
+            } else {
+                selectTable(id);
+            }
+        });
+        paper.on('link:pointerclick', view => select({ kind: 'relation', id: view.model.get('relationId') }));
+        paper.on('blank:pointerclick', clearSelection);
+        $('#details-close').on('click', clearSelection);
+        $(document).on('keydown', e => { if (e.key === 'Escape') { clearSelection(); } });
+        $('#details-body').on('click', '.col-row[data-col]', function () {
+            if (selection && selection.kind !== 'relation') { select({ kind: 'column', id: selection.id, column: $(this).data('col') }); }
+        });
+        $('#details-body').on('click', '.rel', function () {
+            const id = $(this).data('id');
+            const t = tableById.get(id);
+            if (!isTableVisible(t)) { hiddenSchemas.delete(schemaOf(t)); $('.schema-row').each(function () { if ($(this).find('.name').text() === schemaOf(t)) { $(this).find('input').prop('checked', true); } }); }
+            selectTable(id);
+            centerOn(id);
+        });
+
+        // ---- Exports ----
+        const visibleTables = () => MODEL.tables.filter(isTableVisible);
+        function visibleRelations() {
+            return MODEL.relations.filter(r => isTableVisible(tableById.get(r.source)) && isTableVisible(tableById.get(r.target)));
+        }
+
+        const mermaidId = s => String(s).replace(/\W/g, '_').replace(/^(\d)/, '_$1');
+
+        function toMermaid() {
+            const lines = ['erDiagram'];
+            visibleTables().forEach(t => {
+                lines.push(`  ${mermaidId(t.id)} {`);
+                t.columns.forEach(c => {
+                    const keys = [c.primaryKey ? 'PK' : '', c.foreignKey ? 'FK' : '', c.unique ? 'UK' : ''].filter(Boolean).join(', ');
+                    const type = (c.type || 'unknown').replace(/[^\w\-\[\]()]+/g, '_').replace(/^(\d)/, '_$1');
+                    lines.push(`    ${type} ${mermaidId(c.name)}${keys ? ' ' + keys : ''}`);
+                });
+                lines.push('  }');
+            });
+            visibleRelations().forEach(r => {
+                const child = r.oneToOne ? '|o' : '}o';
+                const parent = r.nullable ? 'o|' : '||';
+                lines.push(`  ${mermaidId(r.source)} ${child}--${parent} ${mermaidId(r.target)} : "${r.sourceColumns.join(', ').replace(/"/g, '')}"`);
+            });
+            return lines.join('\n') + '\n';
+        }
+
+        function toJson() {
+            return JSON.stringify({ generatedBy: 'SQL DBMap', tables: visibleTables(), relations: visibleRelations() }, null, 2);
+        }
+
+        $('#download-mermaid-btn').on('click', () => vscode.postMessage({ type: 'downloadMermaid', data: toMermaid() }));
+        $('#download-json-btn').on('click', () => vscode.postMessage({ type: 'downloadJSON', data: toJson() }));
+
+        const EXPORT_PADDING = 50, PNG_SCALE = 3, MAX_CANVAS_PIXELS = 25000000;
+        const MAX_CANVAS_SIDE = 16384; // browsers refuse larger canvases and silently return a blank image
+
+        function toBase64(str) {
+            const bytes = new TextEncoder().encode(str);
+            let binary = '';
+            for (let i = 0; i < bytes.length; i += 0x8000) { binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); }
+            return btoa(binary);
+        }
+
+        // Clones the paper at 1:1, crops it to the visible tables and paints the dark background behind them.
+        // `sizeFor(w, h)` picks the output pixel size.
+        function buildExportSvg(sizeFor) {
+            const tr = paper.translate(), sc = paper.scale();
+            paper.scale(1, 1);
+            paper.translate(0, 0);
+            const svg = paper.svg.cloneNode(true);
+            paper.scale(sc.sx, sc.sy);
+            paper.translate(tr.tx, tr.ty);
+
+            const els = visibleElements();
+            const bbox = els.length ? graph.getCellsBBox(els) : { x: 0, y: 0, width: 100, height: 100 };
+            const minX = bbox.x - EXPORT_PADDING, minY = bbox.y - EXPORT_PADDING;
+            const vbW = bbox.width + EXPORT_PADDING * 2, vbH = bbox.height + EXPORT_PADDING * 2;
+            const size = sizeFor(vbW, vbH);
+
+            svg.removeAttribute('style');
+            svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+            svg.setAttribute('viewBox', `${minX} ${minY} ${vbW} ${vbH}`);
+            svg.setAttribute('width', size.width + 'px');
+            svg.setAttribute('height', size.height + 'px');
+            // The paper's grid pattern would be cropped oddly; replace it with a flat background
+            svg.querySelectorAll('.joint-paper-background, .joint-paper-grid').forEach(n => n.remove());
+            const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            bg.setAttribute('x', minX); bg.setAttribute('y', minY); bg.setAttribute('width', vbW); bg.setAttribute('height', vbH); bg.setAttribute('fill', '#1e1e1e');
+            svg.insertBefore(bg, svg.firstChild);
+            const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+            style.textContent = '[display="none"] { visibility: hidden; } text { text-rendering: geometricPrecision; }';
+            svg.insertBefore(style, svg.firstChild);
+
+            return { svgString: new XMLSerializer().serializeToString(svg), width: size.width, height: size.height };
+        }
+
+        $('#download-svg-btn').on('click', function () {
+            try {
+                const { svgString } = buildExportSvg((w, h) => ({ width: w, height: h }));
+                vscode.postMessage({ type: 'downloadSVG', data: 'data:image/svg+xml;base64,' + toBase64(svgString) });
+            } catch (error) { console.error('Error exporting SVG:', error); }
+        });
+
+        $('#download-png-btn').on('click', function () {
+            try {
+                const { svgString, width, height } = buildExportSvg((w, h) => {
+                    const scale = Math.min(PNG_SCALE, Math.sqrt(MAX_CANVAS_PIXELS / (w * h)), MAX_CANVAS_SIDE / Math.max(w, h));
+                    return { width: Math.max(1, Math.floor(w * scale)), height: Math.max(1, Math.floor(h * scale)) };
+                });
+                const url = URL.createObjectURL(new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' }));
+                const img = new Image();
+                img.onload = function () {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width; canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+                    ctx.drawImage(img, 0, 0, width, height);
+                    URL.revokeObjectURL(url);
+                    // An unusable canvas yields "data:," — the extension reports that to the user
+                    vscode.postMessage({ type: 'downloadPNG', data: canvas.toDataURL('image/png') });
+                };
+                img.onerror = function () { URL.revokeObjectURL(url); console.error('Error rendering SVG to canvas for PNG export.'); };
+                img.src = url;
+            } catch (error) { console.error('Error exporting PNG:', error); }
+        });
+
+        // ---- Physics: linked tables follow the one you drag and tables bump into each other ----
+        // Springs only pull tables that are farther than LINK_REST, which is well above COLLISION_GAP, so the two forces never fight
+        const COLLISION_GAP = 60, LINK_REST = 200, PULL = 0.02, MAX_STEP = 80, MAX_FRAMES = 900, COLLISION_PASSES = 4;
+        let physicsOn = false, draggingId = null, physicsFrame = null, physicsFrames = 0;
+
+        function physicsStep() {
+            const items = visibleElements().map(cell => { const b = cell.getBBox(); return { cell, id: cell.get('tableId'), x: b.x, y: b.y, w: b.width, h: b.height, dx: 0, dy: 0 }; });
+            const byId = new Map(items.map(i => [i.id, i]));
+            // The dragged table never moves by itself: the other one takes the whole displacement
+            const weights = (a, b) => a.id === draggingId ? [0, 1] : b.id === draggingId ? [1, 0] : [0.5, 0.5];
+
+            visibleRelations().forEach(r => {
+                if (r.source === r.target) { return; }
+                const a = byId.get(r.source), b = byId.get(r.target);
+                const vx = b.x + b.w / 2 - (a.x + a.w / 2), vy = b.y + b.h / 2 - (a.y + a.h / 2);
+                const gap = Math.hypot(Math.max(0, Math.abs(vx) - (a.w + b.w) / 2), Math.max(0, Math.abs(vy) - (a.h + b.h) / 2));
+                if (gap <= LINK_REST) { return; }
+                const len = Math.hypot(vx, vy) || 1, pull = (gap - LINK_REST) * PULL, [wa, wb] = weights(a, b);
+                a.dx += vx / len * pull * wa; a.dy += vy / len * pull * wa;
+                b.dx -= vx / len * pull * wb; b.dy -= vy / len * pull * wb;
+            });
+
+            // Collisions are resolved on the spot, several passes, so a push can propagate through a pile of tables
+            for (let pass = 0; pass < COLLISION_PASSES; pass++) {
+                for (let i = 0; i < items.length; i++) {
+                    for (let j = i + 1; j < items.length; j++) {
+                        const a = items[i], b = items[j];
+                        const ox = Math.min(a.x + a.dx + a.w, b.x + b.dx + b.w) - Math.max(a.x + a.dx, b.x + b.dx) + COLLISION_GAP;
+                        const oy = Math.min(a.y + a.dy + a.h, b.y + b.dy + b.h) - Math.max(a.y + a.dy, b.y + b.dy) + COLLISION_GAP;
+                        if (ox <= 0 || oy <= 0) { continue; }
+                        const [wa, wb] = weights(a, b);
+                        if (ox < oy) {
+                            const dir = a.x + a.dx + a.w / 2 < b.x + b.dx + b.w / 2 ? -1 : 1;
+                            a.dx += dir * ox * wa; b.dx -= dir * ox * wb;
+                        } else {
+                            const dir = a.y + a.dy + a.h / 2 < b.y + b.dy + b.h / 2 ? -1 : 1;
+                            a.dy += dir * oy * wa; b.dy -= dir * oy * wb;
+                        }
+                    }
+                }
+            }
+
+            let moved = 0;
+            items.forEach(i => {
+                if (i.id === draggingId) { return; }
+                const dx = Math.max(-MAX_STEP, Math.min(MAX_STEP, i.dx)), dy = Math.max(-MAX_STEP, Math.min(MAX_STEP, i.dy));
+                if (Math.abs(dx) < 0.05 && Math.abs(dy) < 0.05) { return; }
+                i.cell.position(i.x + dx, i.y + dy);
+                moved = Math.max(moved, Math.abs(dx), Math.abs(dy));
+            });
+            return moved;
+        }
+
+        function physicsLoop() {
+            physicsFrame = null;
+            if (!physicsOn) { return; }
+            const moved = physicsStep();
+            physicsFrames++;
+            if (draggingId || (moved > 0.2 && physicsFrames < MAX_FRAMES)) { physicsFrame = requestAnimationFrame(physicsLoop); }
+        }
+
+        function kickPhysics() {
+            physicsFrames = 0;
+            if (physicsOn && !physicsFrame) { physicsFrame = requestAnimationFrame(physicsLoop); }
+        }
+
+        $('#physics-btn').on('click', function () {
+            physicsOn = !physicsOn;
+            $(this).toggleClass('on', physicsOn).text(physicsOn ? 'Physics: On' : 'Physics: Off');
+            kickPhysics();
+        });
+        paper.on('element:pointerdown', view => { draggingId = view.model.get('tableId'); kickPhysics(); });
+        $(document).on('mouseup', () => { if (draggingId) { draggingId = null; kickPhysics(); } });
+
+        // ---- Minimap ----
+        const MM_W = 220, MM_H = 140, MM_PAD = 8;
+        const mmCanvas = document.getElementById('minimap');
+        const mmDpr = window.devicePixelRatio || 1;
+        mmCanvas.width = MM_W * mmDpr; mmCanvas.height = MM_H * mmDpr;
+        const mmCtx = mmCanvas.getContext('2d');
+        let mmXform = null, mmDirty = false, mmDragging = false;
+
+        function scheduleMinimap() {
+            if (!mmDirty) { mmDirty = true; requestAnimationFrame(drawMinimap); }
+        }
+
+        function drawMinimap() {
+            mmDirty = false;
+            mmCtx.setTransform(mmDpr, 0, 0, mmDpr, 0, 0);
+            mmCtx.clearRect(0, 0, MM_W, MM_H);
+            const els = visibleElements();
+            if (!els.length || !$('#show-minimap').is(':checked')) { return; }
+
+            const sc = paper.scale().sx, tr = paper.translate(), rect = paper.el.getBoundingClientRect();
+            const view = { x: -tr.tx / sc, y: -tr.ty / sc, w: rect.width / sc, h: rect.height / sc };
+            // While dragging inside the minimap the mapping stays frozen, or it would rescale under the cursor
+            if (!(mmDragging && mmXform)) {
+                const c = graph.getCellsBBox(els);
+                const minX = Math.min(c.x, view.x), minY = Math.min(c.y, view.y);
+                const maxX = Math.max(c.x + c.width, view.x + view.w), maxY = Math.max(c.y + c.height, view.y + view.h);
+                const s = Math.min((MM_W - MM_PAD * 2) / (maxX - minX), (MM_H - MM_PAD * 2) / (maxY - minY));
+                mmXform = { s, ox: (MM_W - (maxX - minX) * s) / 2 - minX * s, oy: (MM_H - (maxY - minY) * s) / 2 - minY * s };
+            }
+            const { s, ox, oy } = mmXform;
+
+            mmCtx.strokeStyle = '#555'; mmCtx.lineWidth = 1; mmCtx.beginPath();
+            visibleRelations().forEach(r => {
+                if (r.source === r.target) { return; }
+                const a = elementOf.get(r.source).getBBox().center(), b = elementOf.get(r.target).getBBox().center();
+                mmCtx.moveTo(ox + a.x * s, oy + a.y * s); mmCtx.lineTo(ox + b.x * s, oy + b.y * s);
+            });
+            mmCtx.stroke();
+            els.forEach(cell => {
+                const b = cell.getBBox();
+                mmCtx.globalAlpha = cell.attr('root/opacity') < 1 ? 0.3 : 1;
+                mmCtx.fillStyle = colorOfSchema(schemaOf(tableById.get(cell.get('tableId'))));
+                mmCtx.fillRect(ox + b.x * s, oy + b.y * s, Math.max(2, b.width * s), Math.max(2, b.height * s));
+            });
+            mmCtx.globalAlpha = 1;
+            mmCtx.fillStyle = 'rgba(79,195,247,0.12)'; mmCtx.strokeStyle = '#4fc3f7'; mmCtx.lineWidth = 1.5;
+            mmCtx.fillRect(ox + view.x * s, oy + view.y * s, view.w * s, view.h * s);
+            mmCtx.strokeRect(ox + view.x * s, oy + view.y * s, view.w * s, view.h * s);
+        }
+
+        function minimapNavigate(e) {
+            if (!mmXform) { return; }
+            const r = mmCanvas.getBoundingClientRect(), sc = paper.scale().sx, rect = paper.el.getBoundingClientRect();
+            const wx = (e.clientX - r.left - mmXform.ox) / mmXform.s, wy = (e.clientY - r.top - mmXform.oy) / mmXform.s;
+            paper.translate(rect.width / 2 - wx * sc, rect.height / 2 - wy * sc);
+        }
+        mmCanvas.addEventListener('mousedown', e => { e.preventDefault(); mmDragging = true; minimapNavigate(e); });
+        $(document).on('mousemove', e => { if (mmDragging) { minimapNavigate(e); } });
+        $(document).on('mouseup', () => { mmDragging = false; scheduleMinimap(); });
+        paper.on('translate scale', scheduleMinimap);
+        graph.on('change:position change:size', cell => { if (cell.isElement()) { scheduleMinimap(); } });
+        window.addEventListener('resize', scheduleMinimap);
+
+        // Test hook for the browser harness; harmless inside VS Code
+        window.__dbmap = { graph, paper, selectTable, fitView };
+
+        runLayout();
+        applyState();
+        fitView();
+    });
+</script>
+</body>
+</html>
